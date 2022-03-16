@@ -1,6 +1,14 @@
 import xml.etree.cElementTree as ET
 import re
 import utils
+import nltk
+from nltk.corpus import stopwords
+import heapq
+from operator import itemgetter
+import unicodedata, string
+from collections import OrderedDict
+from sklearn.feature_extraction.text import TfidfVectorizer
+import math
 
 
 class ToolsText:
@@ -84,11 +92,8 @@ class ToolsText:
 
 # Exercice 2, TP1
 
-    def dict_id_title(self, file):
-        title = ""
-        id = ""
-        first_id = True
-        dict = {}
+    def dict_mot_frec(self, file):
+        dicti = {}
         mlns = ""
 
         # Get an iterable.
@@ -102,106 +107,68 @@ class ToolsText:
             if event == "end":
 
                 if elem.tag == mlns + "title":
-
-                    if elem.text is None:
-                        title = ""
-                    else:
-                        title = self.htmlspecialchars(elem.text)
-
-                    root.clear()
-
-                if elem.tag == mlns + "id" and first_id:
-                    first_id = False
-
-                    id = elem.text
-                    root.clear()
-
-                if elem.tag == mlns + "text":  # le text
-
-                    if elem.text is None:
-                        title = ""
-
-                    root.clear()
-
-                if elem.tag == mlns + "page":
-                    nb += 1
-                    dict[title] = id
-                    title = ""
-                    id = ""
-                    first_id = True
-                    root.clear()
-
-        return dict
-
-    """def extractLambda(self, nb_page, file, f):
-
-        title = ""
-        id = ""
-        text = ""
-        first_id = True
-        mlns = ""
-
-        # Get an iterable.
-        context = ET.iterparse(file, events=("start", "end"))
-        nb = 0
-
-        fichier = open("./large_files/ExtractLambda.xml", "w")
-        fichier.write("<mediawiki>\n")
-
-        for index, (event, elem) in enumerate(context):
-            # Get the root element.
-            if index == 0:
-                root = elem
-
-            if event == "end":  # balise fermante
-
-                if elem.tag == mlns + "title":  # le titre
-
                     title = self.htmlspecialchars(elem.text)
-
+                    self.word_count(title,dicti)
                     root.clear()
 
-                if elem.tag == mlns + "id" and first_id:  # si premier ID
-                    first_id = False
-
-                    id = elem.text
-
-                    root.clear()
-
-                if elem.tag == mlns + "text":  # le text
+                if elem.tag == mlns + "text":
 
                     text = self.htmlspecialchars(elem.text)
-
+                    self.word_count(text,dicti)
                     root.clear()
-
-                '''
-                    création  de la page  
-
-                '''
 
                 if elem.tag == mlns + "page":
                     nb += 1
-
-                    print(title)
-
-                    fichier.write("<page>\n")
-                    fichier.write("<title>" + f(title) + "</title>\n")
-                    fichier.write("<id>" + id + "</id>\n")
-                    fichier.write("<text>" + f(text) + "</text>\n")
-                    fichier.write("</page>\n")
-
-                    title = ""
-                    id = ""
-                    text = ""
-                    first_id = True
-
                     root.clear()
 
-            if nb == nb_page:
-                break
+        # prendre les 10000 mots les plus fréquants
+        corrected_dict = dict(sorted(dicti.items(), key = itemgetter(1), reverse = True)[:10000])
+        dicti.clear()
+        listemotvide = ['ailleurs','fois','avoir','donc','souvent','soit','encore','etait','pour','sur','plus','que','www','date','sont','se','il','ou','son','name','qu','nom','pas','sous','ses','entre','of','mais','deux','ont','aussi','fait','on','cette','ete','meme','dont','prenom','autres','the','etre','tres','elle','apres','lui','egalement','and','notamment', 'vers',"par","dans","lt","gt","ref","le","la","les","l'","du","de","des","d'","un","une","et","au","aux","en","sa","ces","ce","-il","-elle","afin","ai","ainsi","alors","après","as","auprès","auquel","aurait","autre","avec","car","ceci","celui","chacun,'chaque","comme","est","est-ce","hors","leur","leurs","malgré","me","mes","moi","moins","notre","votre","qui","sans","sera",""]
+        dicmotvide = {}
 
-        fichier.write("</mediawiki>")
-        fichier.close()"""
+        # Supprimer les accents, les majuscules et les redondances
+        dicti = { self.remove_accents(k): v for k, v in corrected_dict.items() }
+        corrected_dict.clear()
+
+        # Séparer les mots vides
+        for key, value in dicti.items():
+            if key in listemotvide:
+                if key in dicmotvide:
+                    dicmotvide[key] = dicmotvide[key]+value
+                else:
+                    dicmotvide[key] = value
+            else:
+                if key in corrected_dict:
+                    corrected_dict[key] = corrected_dict[key] +value
+                else:
+                    corrected_dict[key] = value
+        dicti.clear()
+
+        # Trier le dict
+        dicti = {val[0] : val[1] for val in sorted(corrected_dict.items(), key = lambda x: (-x[1], x[0]))}
+        return dicti
+
+    def remove_accents(self,data):
+        nkfd_form = unicodedata.normalize('NFKD', data)
+        only_ascii = nkfd_form.encode('ASCII', 'ignore')
+        l = [c for c in str(only_ascii) if not c.isdigit() and c in string.ascii_letters]
+        return ''.join(l[1:]).lower()
+
+
+    def word_count(self,str,counts):
+        words = re.split(r"[\b\W\b\d]+",str)
+
+        for word in words:
+            if (len(word)>1):
+                if word in counts:
+                    counts[word] += 1
+                else:
+                    counts[word] = 1
+
+        return counts
+
+#Exercice 3 IDF:
 
     def findPage(self, id_, file):
 
@@ -274,25 +241,61 @@ class ToolsText:
 
         return {"title": title, "id": id, "text": text}
 
+    def word_verif(self,str):
+        words = re.split(r"[\b\W\b\d]+",str)
+        return words
+
+    def idfm(self,file,dicti):
+        dicidf = {}
+        liste=[]
+        for i in dicti:
+            dicidf[i] = 0
+        mlns = ""
+
+        # Get an iterable.
+        context = ET.iterparse(file, events=("start", "end"))
+        nb = 0
+        for index, (event, elem) in enumerate(context):
+            # Get the root element.
+            if index == 0:
+                root = elem
+
+            if event == "end":
+
+                if elem.tag == mlns + "title":
+                    title = self.htmlspecialchars(elem.text)
+                    liste=self.word_verif(title)
+                    root.clear()
+
+                if elem.tag == mlns + "text":
+
+                    text = self.htmlspecialchars(elem.text)
+                    liste = list(set(liste +self.word_verif(text)))
+                    root.clear()
+
+                if elem.tag == mlns + "page":
+                    nb += 1
+                    listef = { self.remove_accents(k) for k in liste }
+                    for w in dicti:
+                        if w in listef:
+                            dicidf[w]=dicidf[w]+1
+                    root.clear()
+
+        for w in dicidf:
+            dicidf[w]= math.log10(nb/dicidf[w])
+        return dicidf
+
+
+
 
 a = ToolsText()
-
+file = "/home/ufrinfo/PycharmProjects/pythonProject/venv/dataResult100.xml"
 #print(a.extract(200_000, "/home/ufrinfo/PycharmProjects/pythonProject/venv/data", ["France", "Paris"]))
 
-#print(a.dict_id_title("/home/ufrinfo/PycharmProjects/pythonProject/venv/dataResult.xml"))
-print(a.findPage(1456, "/home/ufrinfo/PycharmProjects/pythonProject/venv/dataResult.xml"))
+#a.dict_mot_frec(file)
+#print(a.idfm(a.dict_mot_frec(file)))
+#print(a.findPage(1456, file))
+abc= a.dict_mot_frec(file)
+a.idfm(file,abc)
+# ============ main =================== #
 
-# ============ main ===================
-
-
-"""context = ET.iterparse("../large_files/fileResult.xml", events=("start", "end"))
-
-for index, (event, elem) in enumerate(context):
-    # Get the root element.
-    if index == 0:
-        root = elem
-
-    if event == "end":
-        if elem.tag == "text":
-            print(utils.lien_interne(elem.text))
-            break"""
